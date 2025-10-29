@@ -39,16 +39,16 @@ public class User {
     @Column(name = "role")
     private ERole role;
 
-    // ONE-TO-ONE relationship with UserProfile
-    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    @ToString.Exclude
-    private UserProfile userProfile;
-
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "location_id")
+    @ToString.Exclude
+    private Location location;
 
     @PrePersist
     protected void onCreate() {

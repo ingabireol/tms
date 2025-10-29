@@ -17,6 +17,6 @@ public interface MovieRepository extends JpaRepository<Movie, UUID> {
 
     List<Movie> findByDirectorContainingIgnoreCase(String director);
 
-    @Query("SELECT m FROM Movie m JOIN m.genres g WHERE g.name = ?1")
+    @Query("SELECT m FROM Movie m WHERE m.genres = ?1")
     List<Movie> findByGenreName(String genreName);
 }

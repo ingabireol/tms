@@ -24,11 +24,4 @@ public class Genre {
 
     @Column(name = "description")
     private String description;
-
-    // MANY-TO-MANY relationship with Movie (inverse side)
-    @ManyToMany(mappedBy = "genres")
-    @ToString.Exclude
-    @JsonIgnore
-    @Builder.Default
-    private Set<Movie> movies = new HashSet<>();
 }

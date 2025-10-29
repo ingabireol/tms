@@ -1,9 +1,10 @@
 package com.mun.theatrems.service;
 
+import com.mun.theatrems.controller.UserRegistrationRequest;
+import com.mun.theatrems.model.Location;
 import com.mun.theatrems.model.User;
-import com.mun.theatrems.model.UserProfile;
+import com.mun.theatrems.repository.LocationRepository;
 import com.mun.theatrems.repository.UserRepository;
-import com.mun.theatrems.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,7 +19,36 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
-    private final UserProfileRepository userProfileRepository;
+    private final LocationRepository locationRepository;
+    public User registerUser(UserRegistrationRequest request) {
+        // Validate username and email uniqueness
+        if (userRepository.existsByUsername(request.getUsername())) {
+            throw new RuntimeException("Username already exists");
+        }
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new RuntimeException("Email already exists");
+        }
+
+        // Build user
+        User user = User.builder()
+                .username(request.getUsername())
+                .email(request.getEmail())
+                .password(request.getPassword())
+                .firstName(request.getFirstName())
+                .lastName(request.getLastName())
+                .phoneNumber(request.getPhoneNumber())
+                .role(request.getRole())
+                .build();
+
+        // Add location if provided
+        if (request.getLocationCode() != null && !request.getLocationCode().isEmpty()) {
+            Location location = locationRepository.findByCode(request.getLocationCode())
+                    .orElseThrow(() -> new RuntimeException("Location not found with code: " + request.getLocationCode()));
+            user.setLocation(location);
+        }
+
+        return userRepository.save(user);
+    }
 
     public User registerUser(User user) {
         if (userRepository.existsByUsername(user.getUsername())) {
@@ -29,30 +59,19 @@ public class UserService {
         }
         return userRepository.save(user);
     }
-
-    public User registerUserWithProfile(User user, UserProfile profile) {
-        if (userRepository.existsByUsername(user.getUsername())) {
-            throw new RuntimeException("Username already exists");
-        }
-
-        User savedUser = userRepository.save(user);
-
-        profile.setUser(savedUser);
-        userProfileRepository.save(profile);
-
-        return savedUser;
+    public List<User> getUsersByLocation(String locationCode) {
+        Location location = locationRepository.findByCode(locationCode)
+                .orElseThrow(() -> new RuntimeException("Location not found with code: " + locationCode));
+        return userRepository.findByLocation(location);
     }
 
-    public UserProfile addUserProfile(UUID userId, UserProfile profile) {
-        User user = userRepository.findById(userId)
-            .orElseThrow(() -> new RuntimeException("User not found"));
-
-        if (userProfileRepository.findByUserId(userId).isPresent()) {
-            throw new RuntimeException("User already has a profile");
-        }
-
-        profile.setUser(user);
-        return userProfileRepository.save(profile);
+    /**
+     * Get users by location ID
+     * @param locationId Location ID
+     * @return List of users in that location
+     */
+    public List<User> getUsersByLocationId(UUID locationId) {
+        return userRepository.findByLocationId(locationId);
     }
 
     public Optional<User> getUserById(UUID id) {

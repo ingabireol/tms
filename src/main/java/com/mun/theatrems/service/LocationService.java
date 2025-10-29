@@ -1,5 +1,6 @@
 package com.mun.theatrems.service;
 
+import com.mun.theatrems.controller.LocationRequest;
 import com.mun.theatrems.exception.DuplicateResourceException;
 import com.mun.theatrems.exception.ResourceNotFoundException;
 import com.mun.theatrems.exception.ValidationException;
@@ -16,14 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Service for Location management
- * Handles hierarchical location operations (self-referencing relationship)
- * Hierarchy: Province → District → Sector → Cell → Village
- *
- * All business logic and validation happens here
- * Throws exceptions on errors (handled by GlobalExceptionHandler)
- */
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -31,89 +24,87 @@ public class LocationService {
 
     private final LocationRepository locationRepository;
 
-    /**
-     * Save a root location (Province)
-     * @throws ValidationException if location is not a province
-     * @throws DuplicateResourceException if code already exists
-     */
-    public Location saveProvince(Location location) {
-        if (location.getType() != ELocation.PROVINCE) {
-            throw new ValidationException("Location must be of type PROVINCE");
+
+    public Location saveLocation(LocationRequest request) {
+        // Check if code already exists
+        if (locationRepository.existsByCode(request.getCode())) {
+            throw new DuplicateResourceException("Location", "code", request.getCode());
         }
 
-        if (locationRepository.existsByCode(location.getCode())) {
-            throw new DuplicateResourceException("Location", "code", location.getCode());
+        Location location = new Location();
+        location.setName(request.getName());
+        location.setCode(request.getCode());
+        location.setType(request.getType());
+
+        // Validation: Province must NOT have parent, others MUST have parent
+        if (request.getType() == ELocation.PROVINCE) {
+            // Province should not have a parent
+            if (request.getParentCode() != null && !request.getParentCode().isEmpty()) {
+                throw new ValidationException("Province cannot have a parent location");
+            }
+            location.setParent(null);
+        } else {
+            // All other types must have a parent
+            if (request.getParentCode() == null || request.getParentCode().isEmpty()) {
+                throw new ValidationException(
+                        String.format("%s must have a parent location", request.getType()));
+            }
+
+            // Find and validate parent
+            Location parent = locationRepository.findByCode(request.getParentCode())
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Location", "code", request.getParentCode()));
+
+            // Validate hierarchy
+            if (!isValidHierarchy(parent.getType(), request.getType())) {
+                throw new ValidationException(
+                        String.format("Invalid hierarchy: %s cannot have child of type %s",
+                                parent.getType(), request.getType()));
+            }
+
+            location.setParent(parent);
         }
 
-        location.setParent(null);  // Ensure no parent for province
         return locationRepository.save(location);
     }
 
     /**
-     * Save a child location with parent hierarchy validation
-     * @throws ResourceNotFoundException if parent not found
-     * @throws ValidationException if hierarchy is invalid
-     * @throws DuplicateResourceException if code already exists
+     * Get all provinces
      */
-    public Location saveChild(String parentCode, Location location) {
-        if (parentCode == null || parentCode.isEmpty()) {
-            return saveProvince(location);
-        }
-
-        Location parent = locationRepository.findByCode(parentCode)
-                .orElseThrow(() -> new ResourceNotFoundException("Location", "code", parentCode));
-
-        // Validate hierarchy
-        if (!isValidHierarchy(parent.getType(), location.getType())) {
-            throw new ValidationException(
-                    String.format("Invalid hierarchy: %s cannot have child of type %s",
-                            parent.getType(), location.getType()));
-        }
-
-        if (locationRepository.existsByCode(location.getCode())) {
-            throw new DuplicateResourceException("Location", "code", location.getCode());
-        }
-
-        location.setParent(parent);
-        return locationRepository.save(location);
+    public List<Location> getAllProvinces() {
+        return locationRepository.findByType(ELocation.PROVINCE);
     }
 
-    /**
-     * Get location by code
-     * @throws ResourceNotFoundException if not found
-     */
+    public Map<String, Object> getLocationHierarchy(String code) {
+        Location location = getLocationByCode(code);
+        return buildLocationHierarchy(location);
+    }
+
+    public List<Map<String, Object>> getCompleteHierarchy() {
+        List<Location> provinces = getAllProvinces();
+        return provinces.stream()
+                .map(this::buildLocationHierarchy)
+                .toList();
+    }
+
     public Location getLocationByCode(String code) {
         return locationRepository.findByCode(code)
                 .orElseThrow(() -> new ResourceNotFoundException("Location", "code", code));
     }
 
-    /**
-     * Get location by ID
-     * @throws ResourceNotFoundException if not found
-     */
     public Location getLocationById(UUID id) {
         return locationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Location", "id", id));
     }
 
-    /**
-     * Get all locations
-     */
     public List<Location> getAllLocations() {
         return locationRepository.findAll();
     }
 
-    /**
-     * Get all locations by type
-     */
     public List<Location> getLocationsByType(ELocation type) {
         return locationRepository.findByType(type);
     }
 
-    /**
-     * Get child locations for a parent location
-     * @throws ResourceNotFoundException if parent not found
-     */
     public List<Location> getChildLocations(String parentCode) {
         Location parent = locationRepository.findByCode(parentCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Location", "code", parentCode));
@@ -121,26 +112,6 @@ public class LocationService {
         return locationRepository.findByParent(parent);
     }
 
-    /**
-     * Get all root locations (locations without parents)
-     */
-    public List<Location> getRootLocations() {
-        return locationRepository.findAll().stream()
-                .filter(location -> location.getParent() == null)
-                .toList();
-    }
-
-    /**
-     * Get root locations by type
-     */
-    public List<Location> getRootLocationsByType(ELocation type) {
-        return locationRepository.findRootLocationsByType(type);
-    }
-
-    /**
-     * Get province name from any location by traversing up the hierarchy
-     * @throws ResourceNotFoundException if location not found
-     */
     public String getProvinceByLocationCode(String code) {
         Location location = getLocationByCode(code);
 
@@ -152,45 +123,18 @@ public class LocationService {
         return location.getName();
     }
 
-    /**
-     * Get full hierarchy path for a location
-     * Returns: Province > District > Sector > Cell > Village
-     * @throws ResourceNotFoundException if location not found
-     */
     public String getLocationPath(String code) {
         Location location = getLocationByCode(code);
 
-        StringBuilder path = new StringBuilder();
+        List<String> pathParts = new ArrayList<>();
 
         // Build path from current location up to root
         while (location != null) {
-            if (path.length() > 0) {
-                path.insert(0, " > ");
-            }
-            path.insert(0, location.getName());
+            pathParts.add(0, location.getName());
             location = location.getParent();
         }
 
-        return path.toString();
-    }
-
-    /**
-     * Get location tree structure from a specific location
-     * @throws ResourceNotFoundException if location not found
-     */
-    public Map<String, Object> getLocationTree(String code) {
-        Location location = getLocationByCode(code);
-        return buildLocationTree(location);
-    }
-
-    /**
-     * Get full hierarchy tree (all provinces with their children)
-     */
-    public List<Map<String, Object>> getFullLocationTree() {
-        List<Location> provinces = locationRepository.findByType(ELocation.PROVINCE);
-        return provinces.stream()
-                .map(this::buildLocationTree)
-                .toList();
+        return String.join(" > ", pathParts);
     }
 
     /**
@@ -283,28 +227,16 @@ public class LocationService {
         return depth;
     }
 
-    /**
-     * Get all descendants of a location (children, grandchildren, etc.)
-     * @throws ResourceNotFoundException if location not found
-     */
     public List<Location> getAllDescendants(String code) {
         Location location = getLocationByCode(code);
         return getAllDescendantsRecursive(location);
     }
 
-    /**
-     * Check if a location exists by code
-     */
     public boolean existsByCode(String code) {
         return locationRepository.existsByCode(code);
     }
 
-    // ==================== Private Helper Methods ====================
 
-    /**
-     * Validate location hierarchy based on types
-     * Province → District → Sector → Cell → Village
-     */
     private boolean isValidHierarchy(ELocation parentType, ELocation childType) {
         return switch (parentType) {
             case PROVINCE -> childType == ELocation.DISTRICT;
@@ -316,25 +248,38 @@ public class LocationService {
     }
 
     /**
-     * Build a hierarchical tree structure for a location and its children
+     * Build a hierarchical structure for a location and all its descendants
+     * Recursively includes all children at all levels
      */
-    private Map<String, Object> buildLocationTree(Location location) {
-        Map<String, Object> tree = new HashMap<>();
-        tree.put("id", location.getId());
-        tree.put("name", location.getName());
-        tree.put("code", location.getCode());
-        tree.put("type", location.getType());
+    private Map<String, Object> buildLocationHierarchy(Location location) {
+        Map<String, Object> hierarchy = new HashMap<>();
+        hierarchy.put("id", location.getId());
+        hierarchy.put("name", location.getName());
+        hierarchy.put("code", location.getCode());
+        hierarchy.put("type", location.getType());
 
+        // Get direct children
         List<Location> children = locationRepository.findByParent(location);
+
         if (!children.isEmpty()) {
-            List<Map<String, Object>> childTrees = children.stream()
-                    .map(this::buildLocationTree)
+            // Recursively build hierarchy for each child
+            List<Map<String, Object>> childHierarchies = children.stream()
+                    .map(this::buildLocationHierarchy)
                     .toList();
-            tree.put("children", childTrees);
-            tree.put("childCount", children.size());
+
+            hierarchy.put("children", childHierarchies);
+            hierarchy.put("childCount", children.size());
+
+            // Add type-specific keys for better clarity
+            switch (location.getType()) {
+                case PROVINCE -> hierarchy.put("districts", childHierarchies);
+                case DISTRICT -> hierarchy.put("sectors", childHierarchies);
+                case SECTOR -> hierarchy.put("cells", childHierarchies);
+                case CELL -> hierarchy.put("villages", childHierarchies);
+            }
         }
 
-        return tree;
+        return hierarchy;
     }
 
     /**

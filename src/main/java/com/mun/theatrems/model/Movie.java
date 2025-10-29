@@ -49,25 +49,7 @@ public class Movie {
     @Column(name = "is_active")
     private Boolean isActive = true;
 
-    // MANY-TO-MANY relationship with Genre
-    @ManyToMany(cascade = {CascadeType.PERSIST, CascadeType.MERGE})
-    @JoinTable(
-        name = "movie_genres",
-        joinColumns = @JoinColumn(name = "movie_id"),
-        inverseJoinColumns = @JoinColumn(name = "genre_id")
-    )
-    @ToString.Exclude
-    @Builder.Default
-    private Set<Genre> genres = new HashSet<>();
+    private String genres;
 
     // Helper methods for Many-to-Many relationships
-    public void addGenre(Genre genre) {
-        genres.add(genre);
-        genre.getMovies().add(this);
-    }
-
-    public void removeGenre(Genre genre) {
-        genres.remove(genre);
-        genre.getMovies().remove(this);
-    }
 }

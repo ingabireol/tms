@@ -1,7 +1,6 @@
 package com.mun.theatrems.controller;
 
 import com.mun.theatrems.model.User;
-import com.mun.theatrems.model.UserProfile;
 import com.mun.theatrems.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -13,11 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * REST Controller for User management
- * Handles user registration, retrieval, updates, and deletion
- * Demonstrates One-to-One relationship with UserProfile
- */
 @RestController
 @RequestMapping("/api/users")
 @RequiredArgsConstructor
@@ -26,47 +20,31 @@ public class UserController {
 
     private final UserService userService;
 
-    /**
-     * Register a new user without profile
-     * POST /api/users/register
-     */
     @PostMapping("/register")
-    public ResponseEntity<?> registerUser(@RequestBody User user) {
+    public ResponseEntity<?> registerUser(@RequestBody UserRegistrationRequest request) {
         try {
-            User savedUser = userService.registerUser(user);
+            User savedUser = userService.registerUser(request);
             Map<String, Object> response = new HashMap<>();
             response.put("message", "User registered successfully");
             response.put("userId", savedUser.getId());
             response.put("username", savedUser.getUsername());
+            response.put("location", savedUser.getLocation() != null ?
+                    savedUser.getLocation().getName() : null);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
         }
     }
-
-    /**
-     * Register a new user with profile (One-to-One relationship)
-     * POST /api/users/register-with-profile
-     * Request body should contain both user and profile objects
-     */
-    @PostMapping("/register-with-profile")
-    public ResponseEntity<?> registerUserWithProfile(@RequestBody UserProfileRequest request) {
+    @GetMapping("/location/{locationCode}")
+    public ResponseEntity<List<User>> getUsersByLocation(@PathVariable String locationCode) {
         try {
-            User savedUser = userService.registerUserWithProfile(request.getUser(), request.getProfile());
-            Map<String, Object> response = new HashMap<>();
-            response.put("message", "User and profile registered successfully");
-            response.put("userId", savedUser.getId());
-            response.put("username", savedUser.getUsername());
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+            List<User> users = userService.getUsersByLocation(locationCode);
+            return ResponseEntity.ok(users);
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
     }
 
-    /**
-     * Get user by ID
-     * GET /api/users/{id}
-     */
     @GetMapping("/{id}")
     public ResponseEntity<?> getUserById(@PathVariable UUID id) {
         return userService.getUserById(id)
@@ -74,19 +52,11 @@ public class UserController {
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
     }
 
-    /**
-     * Get all users
-     * GET /api/users
-     */
     @GetMapping
     public ResponseEntity<List<User>> getAllUsers() {
         return ResponseEntity.ok(userService.getAllUsers());
     }
 
-    /**
-     * Get user by username
-     * GET /api/users/username/{username}
-     */
     @GetMapping("/username/{username}")
     public ResponseEntity<?> getUserByUsername(@PathVariable String username) {
         return userService.getUserByUsername(username)
@@ -94,10 +64,6 @@ public class UserController {
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
     }
 
-    /**
-     * Update user details
-     * PUT /api/users/{id}
-     */
     @PutMapping("/{id}")
     public ResponseEntity<?> updateUser(
             @PathVariable UUID id,
@@ -110,10 +76,6 @@ public class UserController {
         }
     }
 
-    /**
-     * Delete user
-     * DELETE /api/users/{id}
-     */
     @DeleteMapping("/{id}")
     public ResponseEntity<String> deleteUser(@PathVariable UUID id) {
         try {
@@ -125,15 +87,5 @@ public class UserController {
         }
     }
 
-    /**
-     * DTO for user registration with profile request
-     * Used for the /register-with-profile endpoint
-     */
-    @lombok.Data
-    @lombok.NoArgsConstructor
-    @lombok.AllArgsConstructor
-    public static class UserProfileRequest {
-        private User user;
-        private UserProfile profile;
-    }
+
 }
